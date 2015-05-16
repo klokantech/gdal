@@ -81,7 +81,7 @@ HTMLDIR = $(GDAL_HOME)\html
 
 # Set this to the installed directory containing python.  If you don't
 # have python just let it point to a directory that does not exist (as now).
-!IFNDEF PYDIR 
+!IFNDEF PYDIR
 PYDIR   =	"C:\Software\Python24"
 !ENDIF
 
@@ -140,16 +140,16 @@ OPTFLAGS= $(CXX_PDB_FLAGS) /nologo /MD /EHsc /GR /DDEBUG
 !ENDIF  #MSVC_VER
 !ENDIF  # OPTFLAGS
 
-# 
+#
 # Set flags controlling warnings level, and supression of some warnings.
-# 
+#
 !IFNDEF WARNFLAGS
 WARNFLAGS =	/W4 /wd4127 /wd4251 /wd4275 /wd4786 /wd4100 /wd4245 /wd4206 /wd4018 /wd4389
 !ENDIF
 
-# 
+#
 # Set flags controlling availability of SSE
-# 
+#
 !IFNDEF SSEFLAGS
 SSEFLAGS = /DHAVE_SSE_AT_COMPILE_TIME
 !ENDIF
@@ -170,18 +170,18 @@ LDEBUG= /debug
 # compiles.
 #WIN64=YES
 
-# If you don't want some entry points to have STDCALL conventions, 
+# If you don't want some entry points to have STDCALL conventions,
 # comment out the following and add -DCPL_DISABLE_STDCALL in OPTFLAGS.
 # This option has no effect on 64-bit windows.
 STDCALL=YES
 
-# Version number embedded in DLL name. 
+# Version number embedded in DLL name.
 !IFNDEF VERSION
 VERSION =	111
 !ENDIF
 
 # Comment the following out if you want PAM supported disabled
-# by default.  
+# by default.
 PAM_SETTING=-DPAM_ENABLED
 
 # Uncomment the following to link OGR utilities against main GDAL DLL
@@ -189,14 +189,14 @@ PAM_SETTING=-DPAM_ENABLED
 DLLBUILD=1
 
 # Enable all OGR formats, or only raster formats?  Comment out to disable
-# vector formats. 
+# vector formats.
 INCLUDE_OGR_FRMTS = YES
 
 # Location of Visual C++ directory (only required for following SETARGV stuff)
 #VCDIR   = 	"D:\Software\VStudio\VC98"
 
 # Enable the following if VCDIR set properly, and you want the utility
-# programs to be able to expand wildcards. 
+# programs to be able to expand wildcards.
 #SETARGV =	$(VCDIR)\lib\setargv.obj
 
 # Uncomment to build with libiconv library to support extended character
@@ -259,8 +259,8 @@ JPEG12_SUPPORTED = 1
 #		$(LIBKML_DIR)/third_party\uriparser-0.7.5.win32/release/uriparser.lib \
 #		$(LIBKML_DIR)/third_party\zlib-1.2.3.win32/lib/minizip.lib \
 #		$(LIBKML_DIR)/third_party\zlib-1.2.3.win32/lib/zlib.lib
-							
-# Uncomment the following and update to enable ECW read support with the 
+
+# Uncomment the following and update to enable ECW read support with the
 # 4.1+ readonly SDK
 #ECWDIR  = 	"c:/Program Files/ERDAS/ERDAS ECW JPEG2000 Read SDK"
 #ECWFLAGS =	-DECWSDK_VERSION=41 \
@@ -271,9 +271,9 @@ JPEG12_SUPPORTED = 1
 #		$(ECWDIR)\lib\vc90\win32\NCSUtil4.lib \
 #		$(ECWDIR)\lib\vc90\win32\NCScnet4.lib
 
-# To add Write support, use the write SDK, change NCSEcw4_RO.lib to 
+# To add Write support, use the write SDK, change NCSEcw4_RO.lib to
 # NCSEcw4.lib, and add -DHAVE_COMPRESS to ECWFLAGS.  The ECWDIR setting will
-# also need some adjustment. 
+# also need some adjustment.
 
 # Uncomment the following and update to enable ECW read support with the 5.0 SDK
 #ECWDIR  =  "c:\Intergraph\ecwsdk5"
@@ -353,7 +353,7 @@ JPEG12_SUPPORTED = 1
 # Uncomment the following and update to enable NCSA HDF Release 5 support.
 #HDF5_PLUGIN = NO
 #HDF5_DIR =	c:\warmerda\supportlibs\hdf5\5-164-win
-#HDF5_LIB =	$(HDF5_DIR)\dll\hdf5dll.lib 
+#HDF5_LIB =	$(HDF5_DIR)\dll\hdf5dll.lib
 
 # Uncomment the following for MrSID support.  Only MRSID_DIR is required,
 # which may point to a MrSID Raster SDK, Lidar SDK, or the combined SDK, and
@@ -384,7 +384,7 @@ PCIDSK_SETTING=INTERNAL
 #PG_LIB = n:\pkg\libpq_win32\lib\libpqdll.lib wsock32.lib
 
 # MySQL Libraries
-# NOTE: Need /MT instead of /MD, also enable /EHsc switch. 
+# NOTE: Need /MT instead of /MD, also enable /EHsc switch.
 #MYSQL_INC_DIR = D:\Software\MySQLServer4.1\include
 #MYSQL_LIB = D:\Software\MySQLServer4.1\lib\opt\libmysql.lib advapi32.lib
 
@@ -469,15 +469,15 @@ OCI_INCLUDE =	-I$(ORACLE_HOME)\oci\include
 #SDE_VERSION=91
 #SDE_PLUGIN = NO
 #SDE_SDK = C:\arcgis\arcsde
-#SDE_INC = $(SDE_SDK)\include 
+#SDE_INC = $(SDE_SDK)\include
 #SDE_LIB = $(SDE_SDK)\lib\pe$(SDE_VERSION).lib \
-#          $(SDE_SDK)\lib\sde$(SDE_VERSION).lib $(SDE_SDK)\lib\sg$(SDE_VERSION).lib      
+#          $(SDE_SDK)\lib\sde$(SDE_VERSION).lib $(SDE_SDK)\lib\sg$(SDE_VERSION).lib
 
 
 #FGDB_ENABLED = YES
 #FGDB_PLUGIN = YES
 #FGDB_SDK = C:\Users\rburhum\Desktop\FileGDB_API_VS2008_1_0beta3
-#FGDB_INC = $(FGDB_SDK)\include 
+#FGDB_INC = $(FGDB_SDK)\include
 #FGDB_LIB = $(FGDB_SDK)\lib\FileGDBAPI.lib
 
 
@@ -543,6 +543,18 @@ OCI_INCLUDE =	-I$(ORACLE_HOME)\oci\include
 #PODOFO_CFLAGS = -Ie:/podofo-svn/install/include -Ie:/podofo-svn/install/include/podofo
 #PODOFO_LIBS = e:/podofo-svn/install/lib/podofo.lib E:/release-1500-dev/release-1500/lib/freetype239.lib gdi32.lib
 
+# Uncomment for PDF support with PDFium
+#
+# Support for open-source PDFium library
+# Author: Martin Mikita <martin.mikita@klokantech.com>
+# Copyright (C) 2015 Klokan Technologies GmbH (http://www.klokantech.com/)
+# School:   xmikit00 @ FIT VUT Brno [2009-2015]
+#
+#PDFIUM_ENABLED = YES
+#PDFIUM_CFLAGS = -Ie:/pdfium-svn/
+#PDFIUM_LIB_DIR = e:/pdfium-svn/build/Release/lib
+#PDFIUM_LIBS = $(PDFIUM_LIB_DIR)/pdfium.lib $(PDFIUM_LIB_DIR)/bigint.lib $(PDFIUM_LIB_DIR)/fdrm.lib $(PDFIUM_LIB_DIR)/formfiller.lib $(PDFIUM_LIB_DIR)/fpdfapi.lib $(PDFIUM_LIB_DIR)/fpdfdoc.lib $(PDFIUM_LIB_DIR)/fpdftext.lib $(PDFIUM_LIB_DIR)/freetype.lib $(PDFIUM_LIB_DIR)/fxcodec.lib $(PDFIUM_LIB_DIR)/fxcrt.lib $(PDFIUM_LIB_DIR)/fxedit.lib $(PDFIUM_LIB_DIR)/fxge.lib $(PDFIUM_LIB_DIR)/pdfwindow.lib
+
 # Uncomment for LZMA TIFF support
 #LZMA_CFLAGS = -IC:/gdal_trunk/xz-5.0.0-windows/include
 #LZMA_LIBS = C:/gdal_trunk/xz-5.0.0-windows/bin_i486/liblzma.lib
@@ -572,12 +584,12 @@ OCI_INCLUDE =	-I$(ORACLE_HOME)\oci\include
 #GTA_LIBS = C:/gdal_trunk/libgta-1.0.0-w32/lib/libgta.dll.a
 
 # Any extra libraries needed on this platform?
-ADD_LIBS	= 
+ADD_LIBS	=
 
 # Comment out the following if you want to build with Python support, but
 # you don't have Numeric Python installed (with include files).  Numeric
-# integration may not work.  This only appears to the old generation 
-# bindings. 
+# integration may not work.  This only appears to the old generation
+# bindings.
 #HAVE_NUMPY=1
 
 ########### END OF STUFF THAT NORMALLY NEEDS TO BE UPDATED ##################
@@ -604,12 +616,12 @@ MSVC_VLD_LIB=/LIBPATH:$(MSVC_VLD_DIR)/lib/Win32
 OGR_FLAG = -DOGR_ENABLED
 !ENDIF
 
-#LINKER_FLAGS =	/NODEFAULTLIB:LIBC 
+#LINKER_FLAGS =	/NODEFAULTLIB:LIBC
 LINKER_FLAGS = $(EXTRA_LINKER_FLAGS) $(MSVC_VLD_LIB) $(LDEBUG)
 
 
 CFLAGS	=	$(OPTFLAGS) $(WARNFLAGS) $(SSEFLAGS) $(INC) $(EXTRAFLAGS) $(OGR_FLAG) $(MSVC_VLD_FLAGS)
-CPPFLAGS = $(CFLAGS) 
+CPPFLAGS = $(CFLAGS)
 MAKE	=	nmake /nologo
 
 !IFNDEF CC
@@ -705,7 +717,7 @@ EXTERNAL_LIBS =	$(OGDILIB) $(XERCES_LIB) $(EXPAT_LIB) $(OCI_LIB) $(PG_LIB) \
 	$(MYSQL_LIB) $(GEOS_LIB) $(HDF5_LIB_LINK) $(SDE_LIB) $(ARCOBJECTS_LIB) $(DWG_LIB) \
 	$(IDB_LIB) $(CURL_LIB) $(DODS_LIB) $(KAKLIB) $(PCIDSK_LIB) \
 	$(ODBCLIB) $(JASPER_LIB) $(PNG_LIB) $(ADD_LIBS) $(OPENJPEG_LIB) \
-	$(MRSID_LIDAR_LIB) $(LIBKML_LIBS) $(SOSI_LIBS) $(POPPLER_LIBS) $(PODOFO_LIBS) $(LZMA_LIBS) \
+	$(MRSID_LIDAR_LIB) $(LIBKML_LIBS) $(SOSI_LIBS) $(POPPLER_LIBS) $(PODOFO_LIBS) $(PDFIUM_LIBS) $(LZMA_LIBS) \
 	$(LIBICONV_LIBRARY) $(WEBP_LIBS) $(FGDB_LIB_LINK) $(FREEXL_LIBS) $(GTA_LIBS) \
 	$(INGRES_LIB) $(LIBXML2_LIB) $(PCRE_LIB) ws2_32.lib
-		
+
