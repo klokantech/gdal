@@ -545,6 +545,45 @@ typedef struct
     int            nBands;
 } GDALPDFTileDesc;
 
+#ifdef HAVE_PDFIUM
+/**
+ * Structures for Document and Document's Page for PDFium library,
+ *  which does not support multi-threading.
+ * Structures keeps objects for PDFium library and exclusive mutex locks
+ *  for one-per-time access of PDFium library methods with multi-threading GDAL
+ * Structures also keeps only one object per each opened PDF document
+ *  - this saves time for opening and memory for opened objects
+ * Document is closed after closing all pages object.
+ */
+
+/************************************************************************/
+/*                           TPdfiumPageStruct                          */
+/************************************************************************/
+
+// Map of Pdfium pages in following structure
+typedef struct {
+  int pageNum;
+  CPDF_Page* page;
+  int parsed;
+  CPLMutex * readMutex;
+  int sharedNum;
+} TPdfiumPageStruct;
+
+typedef std::map<int, TPdfiumPageStruct*>        TMapPdfiumPages;
+
+/************************************************************************/
+/*                         TPdfiumDocumentStruct                        */
+/************************************************************************/
+
+// Structure for Mutex on File
+typedef struct {
+  char* filename;
+  CPDF_Document* doc;
+  TMapPdfiumPages pages;
+} TPdfiumDocumentStruct;
+
+#endif  // ~ HAVE_PDFIUM
+
 /************************************************************************/
 /* ==================================================================== */
 /*                              PDFDataset                              */
@@ -585,8 +624,8 @@ class PDFDataset : public GDALPamDataset
     int          bPdfToPpmFailed;
 #endif
 #ifdef HAVE_PDFIUM
-    CPDF_Document*  poDocPdfium;
-    CPDF_Page*      poPagePdfium;
+    TPdfiumDocumentStruct*  poDocPdfium;
+    TPdfiumPageStruct*      poPagePdfium;
 #endif
     GDALPDFObject* poPageObj;
 
@@ -1196,6 +1235,274 @@ CPLErr PDFRasterBand::IReadBlock( int nBlockXOff, int nBlockYOff,
     return CE_None;
 }
 
+#ifdef HAVE_PDFIUM
+
+/************************************************************************/
+/*                         Pdfium Load/Unload                           */
+/* Author: Martin Mikita <martin.mikita@klokantech.com>                 */
+/* Copyright (C) 2015 Klokan Technologies GmbH (http://www.klokantech.com/) */
+/************************************************************************/
+
+// Pdfium global read mutex - Pdfium is not multi-thread
+static CPLMutex * g_oPdfiumReadMutex;
+static CPLMutex * g_oPdfiumLoadDocMutex;
+
+// Comparison of char* for std::map
+struct cmp_str
+{
+   bool operator()(char const *a, char const *b) const
+   {
+      return strcmp(a, b) < 0;
+   }
+};
+
+// List of all PDF datasets
+typedef std::map<char*, TPdfiumDocumentStruct*, cmp_str>    TMapPdfiumDatasets;
+static TMapPdfiumDatasets g_mPdfiumDatasets;
+
+/**
+ * Loading PDFIUM page
+ * - multithreading requires "mutex"
+ * - one page can require too much RAM
+ * - we will have one document per filename and one object per page
+ */
+static
+int LoadPdfiumDocumentPage(const char* pszFilename, const char* pszUserPwd,
+    int pageNum, TPdfiumDocumentStruct** doc, TPdfiumPageStruct** page)
+{
+  TPdfiumDocumentStruct *poDoc;
+  TPdfiumPageStruct *poPage;
+
+  // Prepare NULL for error returning
+  if(doc)
+    *doc = NULL;
+  if(page)
+    *page = NULL;
+
+  // Loading document and page must be only in one thread!
+  CPLCreateOrAcquireMutex(&g_oPdfiumLoadDocMutex, PDFIUM_MUTEX_TIMEOUT);
+
+  // Library can be destroyed if every PDF dataset was closed!
+  if(!PDFDataset::bPdfiumInit) {
+    FPDF_InitLibrary();
+    PDFDataset::bPdfiumInit = TRUE;
+  }
+
+  TMapPdfiumDatasets::iterator it;
+  it = g_mPdfiumDatasets.find((char*)pszFilename);
+  // Load new document if missing
+  if(it == g_mPdfiumDatasets.end() ) {
+    // Try without password (if PDF not requires password it can fail)
+    CPDF_Document* docPdfium;
+    docPdfium = reinterpret_cast<CPDF_Document*>(FPDF_LoadDocument(pszFilename, NULL));
+    if(docPdfium == NULL)
+    {
+      unsigned long err = FPDF_GetLastError();
+      if( err == FPDF_ERR_PASSWORD) {
+          if(pszUserPwd) {
+            char szPassword[81];
+            if (EQUAL(pszUserPwd, "ASK_INTERACTIVE")) {
+              printf( "Enter password (will be echo'ed in the console): " );
+              if (0 == fgets( szPassword, sizeof(szPassword), stdin ))
+              {
+                fprintf(stderr, "WARNING: Error getting password.\n");
+              }
+              szPassword[sizeof(szPassword)-1] = 0;
+              char* sz10 = strchr(szPassword, '\n');
+              if (sz10)
+                  *sz10 = 0;
+              pszUserPwd = szPassword;
+            }
+            docPdfium = reinterpret_cast<CPDF_Document*>(FPDF_LoadDocument(pszFilename, pszUserPwd));
+            if(docPdfium == NULL)
+              err = FPDF_GetLastError();
+            else
+              err = FPDF_ERR_SUCCESS;
+          }
+          else {
+            CPLError(CE_Failure, CPLE_AppDefined,
+              "A password is needed. You can specify it through the PDF_USER_PWD "
+              "configuration option (that can be set to ASK_INTERACTIVE)");
+
+            CPLReleaseMutex(g_oPdfiumLoadDocMutex);
+            return FALSE;
+          }
+      } // First Error Password [null password given]
+      if( err != FPDF_ERR_SUCCESS ) {
+        if(err == FPDF_ERR_PASSWORD)
+          CPLError(CE_Failure, CPLE_AppDefined, "PDFium Invalid password.");
+        else if(err == FPDF_ERR_SECURITY)
+          CPLError(CE_Failure, CPLE_AppDefined, "PDFium Unsupported security scheme.");
+        else if(err == FPDF_ERR_FORMAT)
+          CPLError(CE_Failure, CPLE_AppDefined, "PDFium File not in PDF format or corrupted.");
+        else if(err == FPDF_ERR_FILE)
+          CPLError(CE_Failure, CPLE_AppDefined, "PDFium File not found or could not be opened.");
+        else
+          CPLError(CE_Failure, CPLE_AppDefined, "PDFium Unknown PDF error or invalid PDF.");
+
+        CPLReleaseMutex(g_oPdfiumLoadDocMutex);
+        return FALSE;
+      }
+    } // ~ wrong PDF or password required
+
+    // Create new poDoc
+    poDoc = new TPdfiumDocumentStruct;
+    if(!poDoc) {
+      CPLError(CE_Failure, CPLE_AppDefined, "Not enough memory for Pdfium Document object");
+
+      CPLReleaseMutex(g_oPdfiumLoadDocMutex);
+      return FALSE;
+    }
+    poDoc->filename = CPLStrdup(pszFilename);
+    poDoc->doc = docPdfium;
+
+    g_mPdfiumDatasets[poDoc->filename] = poDoc;
+  }
+  // Document already loaded
+  else {
+    poDoc = it->second;
+  }
+
+  // Check page num in document
+  int nPages = poDoc->doc->GetPageCount();
+  if (pageNum < 1 || pageNum > nPages)
+  {
+      CPLError(CE_Failure, CPLE_AppDefined, "PDFium Invalid page number (%d/%d) for document %s",
+                pageNum, nPages, pszFilename);
+
+      CPLReleaseMutex(g_oPdfiumLoadDocMutex);
+      return FALSE;
+  }
+
+  TMapPdfiumPages::iterator itPage;
+  itPage = poDoc->pages.find(pageNum);
+  // Page not loaded
+  if(itPage == poDoc->pages.end()) {
+    CPDF_Dictionary* pDict = poDoc->doc->GetPage(pageNum - 1);
+    if (pDict == NULL) {
+      CPLError(CE_Failure, CPLE_AppDefined, "Invalid PDFium : invalid page");
+
+      CPLReleaseMutex(g_oPdfiumLoadDocMutex);
+      return FALSE;
+    }
+    CPDF_Page* pPage = FX_NEW CPDF_Page;
+    if(!pPage) {
+      CPLError(CE_Failure, CPLE_AppDefined, "Not enough memory for Pdfium Page object");
+
+      CPLReleaseMutex(g_oPdfiumLoadDocMutex);
+      return FALSE;
+    }
+    pPage->Load(poDoc->doc, pDict);
+
+    // Parsing content required before rastering
+    // can takes too long for PDF with large number of objects/layers
+    // Page will be parsed in ReadPixels method once
+    // pPage->ParseContent();
+
+    poPage = new TPdfiumPageStruct;
+    if(!poPage) {
+      CPLError(CE_Failure, CPLE_AppDefined, "Not enough memory for Pdfium Page object");
+
+      CPLReleaseMutex(g_oPdfiumLoadDocMutex);
+      return FALSE;
+    }
+    poPage->pageNum = pageNum;
+    poPage->page = pPage;
+    poPage->parsed = 0;
+    poPage->readMutex = NULL;
+    poPage->sharedNum = 0;
+
+    poDoc->pages[pageNum] = poPage;
+  }
+  // Page already loaded
+  else {
+    poPage = itPage->second;
+  }
+
+  // Increase number of used
+  ++poPage->sharedNum;
+
+  if(doc)
+    *doc = poDoc;
+  if(page)
+    *page = poPage;
+
+  CPLReleaseMutex(g_oPdfiumLoadDocMutex);
+
+  return TRUE;
+}
+// ~ static int LoadPdfiumDocumentPage()
+
+static
+int UnloadPdfiumDocumentPage(TPdfiumDocumentStruct** doc, TPdfiumPageStruct** page)
+{
+  if(!doc || !page)
+    return FALSE;
+
+  TPdfiumPageStruct* pPage = *page;
+  TPdfiumDocumentStruct* pDoc = *doc;
+
+  // Get mutex for loading pdfium
+  CPLCreateOrAcquireMutex(&g_oPdfiumLoadDocMutex, PDFIUM_MUTEX_TIMEOUT);
+
+  // Decreas page use
+  --pPage->sharedNum;
+
+  CPLDebug("PDF", "PDFDataset::UnloadPdfiumDocumentPage: page shared num %d\n",
+      pPage->sharedNum);
+  // Page is used (also document)
+  if(pPage->sharedNum != 0) {
+    CPLReleaseMutex(g_oPdfiumLoadDocMutex);
+    return TRUE;
+  }
+
+  // Get mutex, release and destroy it
+  CPLCreateOrAcquireMutex(&(pPage->readMutex), PDFIUM_MUTEX_TIMEOUT);
+  CPLReleaseMutex(pPage->readMutex);
+  CPLDestroyMutex(pPage->readMutex);
+  // Close page and remove from map
+  FPDF_ClosePage(pPage->page);
+
+  pDoc->pages.erase(pPage->pageNum);
+  delete pPage;
+  pPage = NULL;
+
+  CPLDebug("PDF", "PDFDataset::UnloadPdfiumDocumentPage: pages %lu\n",
+      pDoc->pages.size());
+  // Another page is used
+  if(pDoc->pages.size() != 0) {
+    CPLReleaseMutex(g_oPdfiumLoadDocMutex);
+    return TRUE;
+  }
+
+  // Close document and remove from map
+  FPDF_CloseDocument(pDoc->doc);
+  g_mPdfiumDatasets.erase(pDoc->filename);
+  CPLFree(pDoc->filename);
+  delete pDoc;
+  pDoc = NULL;
+
+  CPLDebug("PDF", "PDFDataset::UnloadPdfiumDocumentPage: documents %lu\n",
+      g_mPdfiumDatasets.size());
+  // Another document is used
+  if(g_mPdfiumDatasets.size() != 0) {
+    CPLReleaseMutex(g_oPdfiumLoadDocMutex);
+    return TRUE;
+  }
+
+  CPLDebug("PDF", "PDFDataset::UnloadPdfiumDocumentPage: Nothing loaded, destroy Library\n");
+  // No document loaded, destroy pdfium
+  FPDF_DestroyLibrary();
+  PDFDataset::bPdfiumInit = FALSE;
+
+  CPLReleaseMutex(g_oPdfiumLoadDocMutex);
+
+  return TRUE;
+}
+// ~ static int UnloadPdfiumDocumentPage()
+
+#endif  // ~ HAVE_PDFIUM
+
 /************************************************************************/
 /*                             ReadPixels()                             */
 /************************************************************************/
@@ -1443,9 +1750,16 @@ CPLErr PDFDataset::ReadPixels( int nReqXOff, int nReqYOff,
         if(!poPagePdfium) {
           return CE_Failure;
         }
-        // Parsing content required before rastering
-        // can takes too long for PDF with large number of objects/layers
-        poPagePdfium->ParseContent();
+        // Pdfium does not support multithreading
+        CPLCreateOrAcquireMutex(&g_oPdfiumReadMutex, PDFIUM_MUTEX_TIMEOUT);
+
+        CPLCreateOrAcquireMutex(&(poPagePdfium->readMutex), PDFIUM_MUTEX_TIMEOUT);
+        if(!poPagePdfium->parsed) {
+            // Parsing content required before rastering
+            // can takes too long for PDF with large number of objects/layers
+            poPagePdfium->page->ParseContent();
+            poPagePdfium->parsed = TRUE;
+        }
 
         if (pszRenderingOptions != NULL)
         {
@@ -1476,11 +1790,15 @@ CPLErr PDFDataset::ReadPixels( int nReqXOff, int nReqYOff,
 
         // Part of PDF is render with -x, -y, page_width, page_height
         // (not requested size!)
-        FPDF_RenderPageBitmap(bitmap, poPagePdfium,
+        FPDF_RenderPageBitmap(bitmap, poPagePdfium->page,
               -xOff, -yOff, rasterXSize, rasterYSize, 0, 0);
 
         int stride = FPDFBitmap_GetStride(bitmap);
         GByte* buffer = reinterpret_cast<GByte*>(FPDFBitmap_GetBuffer(bitmap));
+
+        // Release mutex - following is thread-safe
+        CPLReleaseMutex(poPagePdfium->readMutex);
+        CPLReleaseMutex(g_oPdfiumReadMutex);
 
         // Source data is B, G, R, unused.
         // Destination data is R, G, B (,A if is alpha)
@@ -1765,7 +2083,7 @@ GDALPDFObject* PDFDataset::GetCatalog()
 #ifdef HAVE_PDFIUM
     if(bUseLib.test(PDFLIB_PDFIUM))
     {
-        CPDF_Dictionary* catalog = poDocPdfium->GetRoot();
+        CPDF_Dictionary* catalog = poDocPdfium->doc->GetRoot();
         if(catalog)
             poCatalogObject = new GDALPDFObjectPdfium(catalog);
     }
@@ -1829,8 +2147,7 @@ PDFDataset::~PDFDataset()
 #endif
 #ifdef HAVE_PDFIUM
     if(bUseLib.test(PDFLIB_PDFIUM)) {
-        FPDF_ClosePage(poPagePdfium);
-        FPDF_CloseDocument(poDocPdfium);
+        UnloadPdfiumDocumentPage(&poDocPdfium, &poPagePdfium);
     }
     poDocPdfium = NULL;
     poPagePdfium = NULL;
@@ -3143,8 +3460,7 @@ GDALDataset *PDFDataset::Open( GDALOpenInfo * poOpenInfo )
     bHasLib.set(PDFLIB_PODOFO);
 #endif  // HAVE_PODOFO
 #if defined(HAVE_PDFIUM)
-    if(PDFDataset::bPdfiumInit)
-        bHasLib.set(PDFLIB_PDFIUM);
+    bHasLib.set(PDFLIB_PDFIUM);
 #endif  // HAVE_PDFIUM
 
     // No library defined
@@ -3185,8 +3501,8 @@ GDALDataset *PDFDataset::Open( GDALOpenInfo * poOpenInfo )
     PoDoFo::PdfPage* poPagePodofo = NULL;
 #endif
 #ifdef HAVE_PDFIUM
-    CPDF_Document* poDocPdfium = NULL;
-    CPDF_Page* poPagePdfium = NULL;
+    TPdfiumDocumentStruct* poDocPdfium = NULL;
+    TPdfiumPageStruct* poPagePdfium = NULL;
 #endif
     int nPages = 0;
 
@@ -3444,76 +3760,16 @@ GDALDataset *PDFDataset::Open( GDALOpenInfo * poOpenInfo )
 #ifdef HAVE_PDFIUM
   if (bUseLib.test(PDFLIB_PDFIUM))
   {
-    // Try without password (if PDF not requires password it can fail)
-    poDocPdfium = reinterpret_cast<CPDF_Document*>(FPDF_LoadDocument(pszFilename, NULL));
-    if(poDocPdfium == NULL)
-    {
-      unsigned long err = FPDF_GetLastError();
-      if( err == FPDF_ERR_PASSWORD) {
-          if(pszUserPwd) {
-            if (EQUAL(pszUserPwd, "ASK_INTERACTIVE")) {
-              printf( "Enter password (will be echo'ed in the console): " );
-              if (0 == fgets( szPassword, sizeof(szPassword), stdin ))
-              {
-                fprintf(stderr, "WARNING: Error getting password.\n");
-              }
-              szPassword[sizeof(szPassword)-1] = 0;
-              char* sz10 = strchr(szPassword, '\n');
-              if (sz10)
-                  *sz10 = 0;
-              pszUserPwd = szPassword;
-            }
-            poDocPdfium = reinterpret_cast<CPDF_Document*>(FPDF_LoadDocument(pszFilename, pszUserPwd));
-            if(poDocPdfium == NULL)
-              err = FPDF_GetLastError();
-            else
-              err = FPDF_ERR_SUCCESS;
-          }
-          else {
-            CPLError(CE_Failure, CPLE_AppDefined,
-              "A password is needed. You can specify it through the PDF_USER_PWD "
-              "configuration option (that can be set to ASK_INTERACTIVE)");
-            return NULL;
-          }
-      } // First Error Password [null password given]
-      if( err != FPDF_ERR_SUCCESS ) {
-        if(err == FPDF_ERR_PASSWORD)
-          CPLError(CE_Failure, CPLE_AppDefined, "PDFium Invalid password.");
-        else if(err == FPDF_ERR_SECURITY)
-          CPLError(CE_Failure, CPLE_AppDefined, "PDFium Unsupported security scheme.");
-        else if(err == FPDF_ERR_FORMAT)
-          CPLError(CE_Failure, CPLE_AppDefined, "PDFium File not in PDF format or corrupted.");
-        else if(err == FPDF_ERR_FILE)
-          CPLError(CE_Failure, CPLE_AppDefined, "PDFium File not found or could not be opened.");
-        else
-          CPLError(CE_Failure, CPLE_AppDefined, "PDFium Unknown PDF error or invalid PDF.");
-        return NULL;
-      }
-    } // ~ wrong PDF or password required
-
-    nPages = poDocPdfium->GetPageCount();
-    if (iPage < 1 || iPage > nPages)
-    {
-        CPLError(CE_Failure, CPLE_AppDefined, "Invalid page number (%d/%d)",
-                 iPage, nPages);
-        FPDF_CloseDocument(poDocPdfium);
+    if(!LoadPdfiumDocumentPage(pszFilename, pszUserPwd, iPage,
+      &poDocPdfium, &poPagePdfium)) {
+        // CPLError is called inside function
         return NULL;
     }
 
-    // This can take long time! - large GeoPDF are read in memory now and parsed!
-    poPagePdfium = (CPDF_Page*)FPDF_LoadPage(poDocPdfium, iPage - 1);
-    if ( poPagePdfium == NULL )
-    {
-        CPLError(CE_Failure, CPLE_AppDefined, "Invalid PDF : invalid page");
-        FPDF_CloseDocument(poDocPdfium);
-        return NULL;
-    }
-
-    CPDF_Object* pageObj = poPagePdfium->m_pFormDict;
+    CPDF_Object* pageObj = poPagePdfium->page->m_pFormDict;
     if(pageObj == NULL) {
         CPLError(CE_Failure, CPLE_AppDefined, "Invalid PDF : invalid page object");
-        FPDF_ClosePage(poPagePdfium);
-        FPDF_CloseDocument(poDocPdfium);
+        UnloadPdfiumDocumentPage(&poDocPdfium, &poPagePdfium);
         return NULL;
     }
     poPageObj = new GDALPDFObjectPdfium(pageObj);
@@ -3534,8 +3790,7 @@ GDALDataset *PDFDataset::Open( GDALOpenInfo * poOpenInfo )
 #endif
 #ifdef HAVE_PDFIUM
         if (bUseLib.test(PDFLIB_PDFIUM)) {
-            FPDF_ClosePage(poPagePdfium);
-            FPDF_CloseDocument(poDocPdfium);
+            UnloadPdfiumDocumentPage(&poDocPdfium, &poPagePdfium);
         }
 #endif
         return NULL;
@@ -3636,7 +3891,7 @@ GDALDataset *PDFDataset::Open( GDALOpenInfo * poOpenInfo )
 
 #ifdef HAVE_PDFIUM
     if (bUseLib.test(PDFLIB_PDFIUM)) {
-        CFX_FloatRect rect = poPagePdfium->GetPageBBox();
+        CFX_FloatRect rect = poPagePdfium->page->GetPageBBox();
         dfX1 = rect.left;
         dfX2 = rect.right;
         dfY1 = rect.bottom;
@@ -3668,7 +3923,7 @@ GDALDataset *PDFDataset::Open( GDALOpenInfo * poOpenInfo )
 #ifdef HAVE_PDFIUM
     if (bUseLib.test(PDFLIB_PDFIUM))
     {
-        CPDF_Object* pRotate = poPagePdfium->GetPageAttr(FX_BSTRC("Rotate"));
+        CPDF_Object* pRotate = poPagePdfium->page->GetPageAttr(FX_BSTRC("Rotate"));
         if (pRotate)
           dfRotation = pRotate->GetInteger();
         if(dfRotation < 0)
@@ -3937,7 +4192,7 @@ GDALDataset *PDFDataset::Open( GDALOpenInfo * poOpenInfo )
 #ifdef HAVE_PDFIUM
     if (bUseLib.test(PDFLIB_PDFIUM))
     {
-        GDALPDFObjectPdfium poRoot(poDocPdfium->GetRoot());
+        GDALPDFObjectPdfium poRoot(poDocPdfium->doc->GetRoot());
         if(poRoot.GetType() == PDFObjectType_Dictionary) {
           GDALPDFDictionary* poDict = poRoot.GetDictionary();
           GDALPDFObject* poMetadata(poDict->Get("Metadata"));
@@ -3962,7 +4217,7 @@ GDALDataset *PDFDataset::Open( GDALOpenInfo * poOpenInfo )
         /* Find layers */
         poDS->FindLayersGeneric(poPageDict);
 
-        GDALPDFObjectPdfium poInfo(poDocPdfium->GetInfo());
+        GDALPDFObjectPdfium poInfo(poDocPdfium->doc->GetInfo());
         /* Read Info object */
         poDS->ParseInfo(&poInfo);
     }
@@ -5759,8 +6014,40 @@ static void GDALPDFUnloadDriver(CPL_UNUSED GDALDriver * poDriver)
         CPLDestroyMutex(hGlobalParamsMutex);
 #endif
 #ifdef HAVE_PDFIUM
-    if(PDFDataset::bPdfiumInit)
+    if(PDFDataset::bPdfiumInit) {
+        CPLCreateOrAcquireMutex(&g_oPdfiumLoadDocMutex, PDFIUM_MUTEX_TIMEOUT);
+        // Destroy every loaded document or page
+        TMapPdfiumDatasets::iterator itDoc;
+        TMapPdfiumPages::iterator itPage;
+        for(itDoc = g_mPdfiumDatasets.begin(); itDoc != g_mPdfiumDatasets.end(); ++itDoc) {
+          TPdfiumDocumentStruct* pDoc = itDoc->second;
+          for(itPage = pDoc->pages.begin(); itPage != pDoc->pages.end(); ++itPage) {
+            TPdfiumPageStruct* pPage = itPage->second;
+
+            CPLCreateOrAcquireMutex(&g_oPdfiumReadMutex, PDFIUM_MUTEX_TIMEOUT);
+            CPLCreateOrAcquireMutex(&(pPage->readMutex), PDFIUM_MUTEX_TIMEOUT);
+            CPLReleaseMutex(pPage->readMutex);
+            CPLDestroyMutex(pPage->readMutex);
+            FPDF_ClosePage(pPage->page);
+            delete pPage;
+            CPLReleaseMutex(g_oPdfiumReadMutex);
+          } // ~ foreach page
+
+          FPDF_CloseDocument(pDoc->doc);
+          CPLFree(pDoc->filename);
+          pDoc->pages.clear();
+
+          delete pDoc;
+        } // ~ foreach document
+        g_mPdfiumDatasets.clear();
         FPDF_DestroyLibrary();
+        PDFDataset::bPdfiumInit = FALSE;
+
+        CPLReleaseMutex(g_oPdfiumLoadDocMutex);
+
+        CPLDestroyMutex(g_oPdfiumReadMutex);
+        CPLDestroyMutex(g_oPdfiumLoadDocMutex);
+    }
 #endif  // ~ HAVE_PDFIUM
 }
 
@@ -5865,11 +6152,6 @@ void GDALRegister_PDF()
 
         poDriver->pfnCreateCopy = GDALPDFCreateCopy;
         poDriver->pfnUnloadDriver = GDALPDFUnloadDriver;
-
-#ifdef HAVE_PDFIUM
-        FPDF_InitLibrary();
-        PDFDataset::bPdfiumInit = TRUE;
-#endif  // ~ HAVE_PDFIUM
 
         GetGDALDriverManager()->RegisterDriver( poDriver );
     }
