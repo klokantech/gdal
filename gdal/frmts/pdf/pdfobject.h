@@ -70,13 +70,17 @@
  * Some Windows header defines a GetObject macro that
  * shadows a GetObject() method in PoDoFo. This
  * workaround is documented in the PoDoFo source.
- */ 
+ */
 #ifdef GetObject
 #undef GetObject
 #endif
 
 #include "podofo.h"
 #endif // HAVE_PODOFO
+
+#ifdef HAVE_PDFIUM
+#include <core/include/fpdfapi/fpdf_objects.h>
+#endif // HAVE_PDFIUM
 
 
 double ROUND_TO_INT_IF_CLOSE(double x, double eps = 0);
@@ -337,5 +341,47 @@ class GDALPDFObjectPodofo : public GDALPDFObject
 };
 
 #endif // HAVE_PODOFO
+
+#ifdef HAVE_PDFIUM
+/******************************************************************************
+ *
+ * Support for open-source PDFium library
+ *
+ * Author: Martin Mikita <martin.mikita@klokantech.com>
+ * Copyright (C) 2015 Klokan Technologies GmbH (http://www.klokantech.com/)
+ * School:   xmikit00 @ FIT VUT Brno [2009-2015]
+ */
+
+class GDALPDFObjectPdfium : public GDALPDFObject
+{
+    private:
+        CPDF_Object* m_po;
+        GDALPDFDictionary* m_poDict;
+        GDALPDFArray* m_poArray;
+        GDALPDFStream* m_poStream;
+        CPLString osStr;
+
+    protected:
+        virtual const char*       GetTypeNameNative();
+
+    public:
+        GDALPDFObjectPdfium(CPDF_Object *po);
+
+        virtual ~GDALPDFObjectPdfium();
+
+        virtual GDALPDFObjectType GetType();
+        virtual int               GetBool();
+        virtual int               GetInt();
+        virtual double            GetReal();
+        virtual const CPLString&  GetString();
+        virtual const CPLString&  GetName();
+        virtual GDALPDFDictionary*  GetDictionary();
+        virtual GDALPDFArray*       GetArray();
+        virtual GDALPDFStream*      GetStream();
+        virtual int                 GetRefNum();
+        virtual int                 GetRefGen();
+};
+
+#endif // HAVE_PDFIUM
 
 #endif // PDFOBJECT_H_INCLUDED

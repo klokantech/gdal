@@ -661,24 +661,24 @@ int  GDALPDFWriter::WriteSRS_ISO32000(GDALDataset* poSrcDS,
                      "GCPs should form a rectangle in pixel space");
             return 0;
         }
-        
+
         dfULPixel = pasGCPList[iUL].dfGCPPixel;
         dfULLine = pasGCPList[iUL].dfGCPLine;
         dfLRPixel = pasGCPList[iLR].dfGCPPixel;
         dfLRLine = pasGCPList[iLR].dfGCPLine;
-        
+
         /* Upper-left */
         adfGPTS[0] = pasGCPList[iUL].dfGCPX;
         adfGPTS[1] = pasGCPList[iUL].dfGCPY;
-        
+
         /* Lower-left */
         adfGPTS[2] = pasGCPList[iLL].dfGCPX;
         adfGPTS[3] = pasGCPList[iLL].dfGCPY;
-        
+
         /* Lower-right */
         adfGPTS[4] = pasGCPList[iLR].dfGCPX;
         adfGPTS[5] = pasGCPList[iLR].dfGCPY;
-        
+
         /* Upper-right */
         adfGPTS[6] = pasGCPList[iUR].dfGCPX;
         adfGPTS[7] = pasGCPList[iUR].dfGCPY;
@@ -701,7 +701,7 @@ int  GDALPDFWriter::WriteSRS_ISO32000(GDALDataset* poSrcDS,
         adfGPTS[6] = PIXEL_TO_GEO_X(nWidth, 0);
         adfGPTS[7] = PIXEL_TO_GEO_Y(nWidth, 0);
     }
-    
+
     OGRSpatialReferenceH hSRS = OSRNewSpatialReference(pszWKT);
     if( hSRS == NULL )
         return 0;
@@ -720,7 +720,7 @@ int  GDALPDFWriter::WriteSRS_ISO32000(GDALDataset* poSrcDS,
     }
 
     int bSuccess = TRUE;
-    
+
     bSuccess &= (OCTTransform( hCT, 1, adfGPTS + 0, adfGPTS + 1, NULL ) == 1);
     bSuccess &= (OCTTransform( hCT, 1, adfGPTS + 2, adfGPTS + 3, NULL ) == 1);
     bSuccess &= (OCTTransform( hCT, 1, adfGPTS + 4, adfGPTS + 5, NULL ) == 1);
@@ -1195,7 +1195,7 @@ int GDALPDFWriter::WriteSRS_OGC_BP(GDALDataset* poSrcDS,
 
     if( pszWKT == NULL || EQUAL(pszWKT, "") )
         return 0;
-    
+
     if( !bHasGT )
     {
         if (!GDALGCPsToGeoTransform( nGCPCount, pasGCPList,
@@ -1369,7 +1369,7 @@ int GDALPDFWriter::WriteSRS_OGC_BP(GDALDataset* poSrcDS,
     EndObj();
 
     OSRDestroySpatialReference(hSRS);
-    
+
     return nLGIDictId;
 }
 
@@ -2506,7 +2506,7 @@ int GDALPDFWriter::WriteOGRFeature(GDALPDFLayerDesc& osVectorDesc,
             oDict.Add("Border", &(new GDALPDFArrayRW())->Add(0).Add(0).Add(0));
             oDict.Add("H", GDALPDFObjectRW::CreateName("I"));
 
-            if( wkbFlatten(OGR_G_GetGeometryType(hGeom)) == wkbPolygon && 
+            if( wkbFlatten(OGR_G_GetGeometryType(hGeom)) == wkbPolygon &&
                 OGR_G_GetGeometryCount(hGeom) == 1 )
             {
                 OGRGeometryH hSubGeom = OGR_G_GetGeometryRef(hGeom, 0);
@@ -2686,7 +2686,7 @@ int GDALPDFWriter::WriteOGRFeature(GDALPDFLayerDesc& osVectorDesc,
                         dfX - dfRadius * dfKappa, dfY + dfRadius,
                         dfX - dfRadius, dfY + dfRadius * dfKappa,
                         dfX - dfRadius, dfY);
-            if (osSymbolId == "ogr-sym-2") 
+            if (osSymbolId == "ogr-sym-2")
                 VSIFPrintfL(fp, "s\n"); /* not filled */
             else
                 VSIFPrintfL(fp, "b*\n"); /* filled */
@@ -4526,7 +4526,7 @@ GDALDataset *GDALPDFCreateCopy( const char * pszFilename,
 
     const char* pszExtraRasters = CSLFetchNameValue(papszOptions, "EXTRA_RASTERS");
     const char* pszExtraRastersLayerName = CSLFetchNameValue(papszOptions, "EXTRA_RASTERS_LAYER_NAME");
-    
+
     const char* pszOffLayers = CSLFetchNameValue(papszOptions, "OFF_LAYERS");
     const char* pszExclusiveLayers = CSLFetchNameValue(papszOptions, "EXCLUSIVE_LAYERS");
 
@@ -4722,7 +4722,7 @@ GDALDataset *GDALPDFCreateCopy( const char * pszFilename,
         oWriter.WriteJavascriptFile(pszJavascriptFile);
 
     oWriter.Close();
-    
+
     if (poClippingDS != poSrcDS)
         delete poClippingDS;
 
@@ -4733,7 +4733,7 @@ GDALDataset *GDALPDFCreateCopy( const char * pszFilename,
     }
     else
     {
-#if defined(HAVE_POPPLER) || defined(HAVE_PODOFO)
+#if defined(HAVE_POPPLER) || defined(HAVE_PODOFO) || defined(HAVE_PDFIUM)
         return GDALPDFOpen(pszFilename, GA_ReadOnly);
 #else
         return new GDALFakePDFDataset();
