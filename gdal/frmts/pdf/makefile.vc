@@ -1,6 +1,8 @@
 
 OBJ	=	pdfdataset.obj pdfio.obj pdfobject.obj pdfcreatecopy.obj
 
+PLUGIN_DL 	=	gdal_PDF.dll
+
 GDAL_ROOT	=	..\..
 
 !INCLUDE $(GDAL_ROOT)\nmake.opt
@@ -41,4 +43,16 @@ default:	$(OBJ)
 
 clean:
 	-del *.obj
+	-del $(PLUGIN_DL)
+
+plugin:	$(PLUGIN_DL)
+
+$(PLUGIN_DL):	$(OBJ)
+	link /dll $(LDEBUG) /out:$(PLUGIN_DL) $(OBJ) \
+		$(GDAL_ROOT)/gdal_i.lib $(POPPLER_LIBS) $(PODOFO_LIBS) $(PDFIUM_LIBS)
+	if exist $(PLUGIN_DL).manifest mt -manifest $(PLUGIN_DL).manifest -outputresource:$(PLUGIN_DL);2
+
+plugin-install:
+	-mkdir $(PLUGINDIR)
+	$(INSTALL) $(PLUGIN_DLL) $(PLUGINDIR)
 
