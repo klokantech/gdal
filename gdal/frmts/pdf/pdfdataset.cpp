@@ -686,6 +686,9 @@ class PDFDataset : public GDALPamDataset
 
     static GDALDataset *Open( GDALOpenInfo * );
     static int          Identify( GDALOpenInfo * );
+#ifdef HAVE_PDFIUM
+    static int      bPdfiumInit;
+#endif  // ~ HAVE_PDFIUM
 };
 
 /************************************************************************/
@@ -1438,6 +1441,11 @@ CPLErr PDFImageRasterBand::IReadBlock( int CPL_UNUSED nBlockXOff, int nBlockYOff
 /************************************************************************/
 /*                            ~PDFDataset()                            */
 /************************************************************************/
+
+#ifdef HAVE_PDFIUM
+// Flag for calling PDFium Init and Destroy methods
+int PDFDataset::bPdfiumInit = FALSE;
+#endif
 
 PDFDataset::PDFDataset()
 {
@@ -2906,7 +2914,8 @@ GDALDataset *PDFDataset::Open( GDALOpenInfo * poOpenInfo )
     bHasLib.set(PDFLIB_PODOFO);
 #endif  // HAVE_PODOFO
 #if defined(HAVE_PDFIUM)
-    bHasLib.set(PDFLIB_PDFIUM);
+    if(PDFDataset::bPdfiumInit)
+        bHasLib.set(PDFLIB_PDFIUM);
 #endif  // HAVE_PDFIUM
 
     // No library defined
@@ -5515,6 +5524,10 @@ static void GDALPDFUnloadDriver(CPL_UNUSED GDALDriver * poDriver)
     if( hGlobalParamsMutex != NULL )
         CPLDestroyMutex(hGlobalParamsMutex);
 #endif
+#ifdef HAVE_PDFIUM
+    if(PDFDataset::bPdfiumInit)
+        FPDF_DestroyLibrary();
+#endif  // ~ HAVE_PDFIUM
 }
 
 /************************************************************************/
@@ -5618,6 +5631,11 @@ void GDALRegister_PDF()
 
         poDriver->pfnCreateCopy = GDALPDFCreateCopy;
         poDriver->pfnUnloadDriver = GDALPDFUnloadDriver;
+
+#ifdef HAVE_PDFIUM
+        FPDF_InitLibrary();
+        PDFDataset::bPdfiumInit = TRUE;
+#endif  // ~ HAVE_PDFIUM
 
         GetGDALDriverManager()->RegisterDriver( poDriver );
     }
